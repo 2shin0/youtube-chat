@@ -19,14 +19,23 @@ import asyncio
 # --- FastMCP 서버 설정 ---
 MCP_SERVER_URL = st.secrets.api.mcp_server_url  # streamlit cloud secrets에 url 추가 필요
 
-# 클라이언트 생성
+async def async_get_tools(url):
+    async with Client(url) as client:
+            # client가 연결된 상태이므로 await list_tools() 호출 가능
+            tool_list = await client.list_tools()
+            return [tool.json_schema for tool in tool_list]
+        
 try:
-    mcp_client = Client(MCP_SERVER_URL)
-    tool_list = asyncio.run(mcp_client.list_tools())
-    available_tools = [tool.json_schema for tool in tool_list]
+    available_tools = asyncio.run(async_get_tools(MCP_SERVER_URL))
+    
 except Exception as e:
     st.error(f"MCP 서버 연결 실패 또는 Tool 목록 로딩 실패: {e}")
     st.stop()
+
+async def async_tool_call(url, tool_name, tool_args):
+    """FastMCP 클라이언트를 연결하고 특정 툴을 호출합니다."""
+    async with Client(url) as client:
+        return await client.call(tool_name, **tool_args)
 
 
 
@@ -108,7 +117,7 @@ genai.configure(api_key=api_key)
 user_input = st.chat_input("메시지를 입력하세요...")
 
 # 사용자가 메시지를 입력했을 때
-if user_input:
+if user_input:        
     # 사용자 메시지를 현재 세션의 기록에 추가
     current_messages.append({"role": "user", "content": user_input})
 
@@ -178,7 +187,9 @@ if user_input:
                 
                 # FastMCP 클라이언트를 이용해 실제 서버에 요청 및 Tool 실행
                 try:
-                    tool_output = mcp_client.call(tool_name, **tool_args)
+                        tool_output = asyncio.run(
+                        async_tool_call(MCP_SERVER_URL, tool_name, tool_args)
+                    )
                     
                     # 결과를 JSON 문자열로 변환 (모델에 전달하기 위함)
                     if not isinstance(tool_output, str):
@@ -221,6 +232,7 @@ if user_input:
     # AI 응답을 대화 기록에 추가
 
     current_messages.append({"role": "assistant", "content": full_response})
+
 
 
 
