@@ -16,53 +16,15 @@ import json
 import asyncio
 from google.generativeai import types
 
+token = st.secrets.oauth.token
 
 # --- FastMCP 서버 설정 ---
-MCP_SERVER_URL = st.secrets.api.mcp_server_url  # streamlit cloud secrets에 url 추가 필요
-
-def remove_title_recursively(schema: dict):
-    """
-    JSON Schema 딕셔너리와 그 하위의 모든 딕셔너리에서 'title' 키를 재귀적으로 제거합니다.
-    """
-    if not isinstance(schema, dict):
-        return
-
-    # 현재 레벨에서 'title' 제거
-    if "title" in schema:
-        del schema["title"]
-
-    # 'properties' 내부를 순회하며 재귀적으로 제거
-    if "properties" in schema and isinstance(schema["properties"], dict):
-        for prop_name, prop_schema in schema["properties"].items():
-            remove_title_recursively(prop_schema)
-            
-    # 'items' 내부를 순회하며 재귀적으로 제거 (배열 형식 처리)
-    if "items" in schema and isinstance(schema["items"], dict):
-        remove_title_recursively(schema["items"])
+MCP_SERVER_URL = st.secrets.api.mcp_server_url  
 
 async def async_get_tools(url):
-    async with Client(url) as client:
-        tool_list = await client.list_tools()
-        
-        # FastMCP Tool 정보를 Gemini FunctionDeclaration으로 변환
-        gemini_tools = []
-        for tool in tool_list:
-            # FastMCP의 inputSchema는 dict 형태.
-            input_schema = getattr(tool, "inputSchema", None) 
-            if input_schema and isinstance(input_schema, dict):
-                remove_title_recursively(input_schema)
-            
-            # FunctionDeclaration 생성: name과 parameters 사용
-            function_declaration = types.FunctionDeclaration(
-                name=tool.name,
-                description=tool.description or f"{tool.name} 함수", # description 추가 (선택 사항)
-                parameters=input_schema if input_schema else {"type": "object", "properties": {}}
-            )
-            
-            # Tool 객체를 리스트에 추가
-            gemini_tools.append(types.Tool(function_declarations=[function_declaration]))
-            
-        return gemini_tools # [genai.types.Tool, genai.types.Tool, ...] 형태의 리스트 반환
+    async with Client(url, autho=token) as client:
+            tool_list = await client.list_tools()
+            return [(tool.name, getattr(tool, "inputSchema", None)) for tool in tool_list]
         
 try:
     available_tools = asyncio.run(async_get_tools(MCP_SERVER_URL))
@@ -272,6 +234,7 @@ if user_input:
     # AI 응답을 대화 기록에 추가
 
     current_messages.append({"role": "assistant", "content": full_response})
+
 
 
 
