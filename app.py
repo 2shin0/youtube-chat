@@ -37,12 +37,10 @@ gemini_client = genai.Client(api_key=api_key)
 
 
 # --- FastMCP Tool 호출 함수 ---
-async def async_tool_call(tool_name: str, tool_args: Dict[str, Any]) -> Any:
-    """FastMCP 클라이언트를 연결하고 특정 툴을 호출합니다."""
-    # mcp_client는 전역 객체이므로 인자로 전달하지 않고 바로 사용합니다.
-    async with mcp_client:
-        result = await mcp_client.call_tool(tool_name, tool_args)
-        return result.data
+async def async_tool_call(client: Client, tool_name: str, tool_args: Dict[str, Any]) -> Any:
+    """FastMCP 클라이언트를 전달받아 특정 툴을 호출합니다."""
+    result = await client.call_tool(tool_name, tool_args)
+    return result.data
 
 
 
@@ -117,72 +115,73 @@ async def generate_chat_response(messages: List[Dict[str, str]], system_prompt: 
 
     
     # Tool Calling 반복
-    response = None
+    # response = None
     
     # 초기 요청 (사용자 메시지 포함)
-    response = gemini_client.models.generate_content(
-        model="gemini-2.5-pro",
-        contents=full_history,
-        config=genai.types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            temperature=0,
-            tools=[mcp_client.session] # FastMCP Client의 세션을 Tool 정의로 전달
-        )
-    )
-    
-    while response.function_calls:
-        tool_results = []
-        
-        # 응답 요약 표시 (사용자에게 작업 중임을 알림)
-        message_placeholder.write(f"🔎 AI가 필요한 데이터를 **MCP 서버**를 통해 수집 중입니다 ({len(response.function_calls)}개 요청)...")
-        
-        # Tool Call 결과를 history에 추가 (모델이 요청했던 내용)
-        full_history.append(response.candidates[0].content)
-
-        for call in response.function_calls:
-            tool_name = call.name
-            tool_args = dict(call.args)
-            
-            try:
-                # CRITICAL: FastMCP는 비동기이므로 await/asyncio.run으로 실행
-                tool_output = await async_tool_call(tool_name, tool_args)
-                
-                # 결과를 JSON 문자열로 변환 (모델에 전달하기 위함)
-                if not isinstance(tool_output, (str, bytes)):
-                    # Tool의 반환 값이 문자열이 아닌 경우 JSON으로 변환
-                    tool_output = json.dumps(tool_output, ensure_ascii=False, indent=2)
-                    
-                message_placeholder.write(
-                    f"✅ Tool 호출: `{tool_name}` 실행 완료."
-                )
-                
-            except Exception as e:
-                tool_output = f"Tool 실행 오류 ({tool_name}): {e}"
-                message_placeholder.write(
-                    f"❌ Tool 호출: `{tool_name}` 실행 실패. 오류: {tool_output}"
-                )
-
-            # Tool 실행 결과를 포함하여 history에 추가
-            tool_results.append(
-                genai.types.Part.from_function_response(
-                    name=tool_name, 
-                    response=tool_output
-                )
-            )
-        
-        # Tool 결과 메시지 (역할 'tool')를 history에 추가
-        full_history.append(genai.types.Content(role="tool", parts=tool_results))
-        
-        # Tool 실행 결과를 포함하여 다시 Gemini에 요청
+    async with mcp_client:
         response = gemini_client.models.generate_content(
             model="gemini-2.5-pro",
             contents=full_history,
             config=genai.types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 temperature=0,
-                tools=[mcp_client.session]
+                tools=[mcp_client.session] # FastMCP Client의 세션을 Tool 정의로 전달
             )
         )
+
+        while response.function_calls:
+            tool_results = []
+            
+            # 응답 요약 표시 (사용자에게 작업 중임을 알림)
+            message_placeholder.write(f"🔎 AI가 필요한 데이터를 **MCP 서버**를 통해 수집 중입니다 ({len(response.function_calls)}개 요청)...")
+            
+            # Tool Call 결과를 history에 추가 (모델이 요청했던 내용)
+            full_history.append(response.candidates[0].content)
+    
+            for call in response.function_calls:
+                tool_name = call.name
+                tool_args = dict(call.args)
+                
+                try:
+                    # CRITICAL: FastMCP는 비동기이므로 await/asyncio.run으로 실행
+                    tool_output = await async_tool_call(tool_name, tool_args)
+                    
+                    # 결과를 JSON 문자열로 변환 (모델에 전달하기 위함)
+                    if not isinstance(tool_output, (str, bytes)):
+                        # Tool의 반환 값이 문자열이 아닌 경우 JSON으로 변환
+                        tool_output = json.dumps(tool_output, ensure_ascii=False, indent=2)
+                        
+                    message_placeholder.write(
+                        f"✅ Tool 호출: `{tool_name}` 실행 완료."
+                    )
+                    
+                except Exception as e:
+                    tool_output = f"Tool 실행 오류 ({tool_name}): {e}"
+                    message_placeholder.write(
+                        f"❌ Tool 호출: `{tool_name}` 실행 실패. 오류: {tool_output}"
+                    )
+    
+                # Tool 실행 결과를 포함하여 history에 추가
+                tool_results.append(
+                    genai.types.Part.from_function_response(
+                        name=tool_name, 
+                        response=tool_output
+                    )
+                )
+        
+            # Tool 결과 메시지 (역할 'tool')를 history에 추가
+            full_history.append(genai.types.Content(role="tool", parts=tool_results))
+            
+            # Tool 실행 결과를 포함하여 다시 Gemini에 요청
+            response = gemini_client.models.generate_content(
+                model="gemini-2.5-pro",
+                contents=full_history,
+                config=genai.types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0,
+                    tools=[mcp_client.session]
+                )
+            )
         
     # 최종 응답 추출 및 표시
     full_response = response.text
@@ -272,6 +271,7 @@ if user_input:
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
+
 
 
 
