@@ -16,6 +16,8 @@ from fastmcp.client.auth import BearerAuth
 import json
 import asyncio
 from typing import List, Dict, Any
+from google import genai
+
 
 # --- 환경변수 설정 ---
 token = st.secrets.oauth.token
@@ -269,6 +271,7 @@ if user_input:
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
+
 
 
 
