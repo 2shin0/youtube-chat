@@ -16,7 +16,6 @@ from fastmcp.client.auth import BearerAuth
 import json
 import asyncio
 from typing import List, Dict, Any
-from google.genai import types
 from google import genai
 
 
@@ -114,7 +113,8 @@ async def generate_chat_response(messages: List[Dict[str, str]], system_prompt: 
     for m in messages:
         # Gemini API는 'assistant' 대신 'model' 역할을 사용합니다.
         role = "model" if m["role"] == "assistant" else m["role"]
-        full_history.append(genai.types.Content(role=role, parts=[Part(text=m["content"])]))
+        full_history.append(genai.types.Content(role=role, parts=[genai.types.Part.from_text(m["content"])]))
+
     
     # Tool Calling 반복
     response = None
@@ -272,6 +272,7 @@ if user_input:
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
+
 
 
 
