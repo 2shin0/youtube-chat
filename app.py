@@ -14,6 +14,7 @@ import time
 from fastmcp import Client
 import json
 import asyncio
+from google.generativeai.types import Tool, FunctionDeclaration, Schema
 
 
 # --- FastMCP 서버 설정 ---
@@ -244,6 +245,7 @@ if user_input:
     # AI 응답을 대화 기록에 추가
 
     current_messages.append({"role": "assistant", "content": full_response})
+
 
 
 
