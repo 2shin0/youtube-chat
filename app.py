@@ -90,25 +90,16 @@ for session_id, session_data in st.session_state.chat_sessions.items():
 
 
 # --- 비동기 챗봇 응답 생성 함수 ---
-async def generate_chat_response(messages: List[Dict[str, str]], system_prompt: str, message_placeholder):
+
+async def generate_chat_response_async(messages: List[Dict[str, str]], system_prompt: str, message_placeholder):
     """
     사용자 메시지를 기반으로 Gemini API와 FastMCP Tool Calling을 통합하여 응답을 생성합니다.
     """
-    
-    # 1. Gemini API에 전달할 대화 기록 포맷팅
-    # FastMCP Tool Calling을 포함한 복잡한 대화는 generate_content에 전체 history를 전달하는 것이 안정적입니다.
-    # 역할은 'user'와 'model' (이전 AI 응답), Tool 결과는 'tool'입니다.
     full_history = []
     for m in messages:
-        # Gemini API는 'assistant' 대신 'model' 역할을 사용합니다.
         role = "model" if m["role"] == "assistant" else m["role"]
         full_history.append(genai.types.Content(role=role, parts=[genai.types.Part.from_text(text=m["content"])]))
 
-    
-    # Tool Calling 반복
-    # response = None
-    
-    # 초기 요청 (사용자 메시지 포함)
     async with mcp_client:
         response = gemini_client.models.generate_content(
             model="gemini-2.5-pro",
@@ -116,53 +107,39 @@ async def generate_chat_response(messages: List[Dict[str, str]], system_prompt: 
             config=genai.types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 temperature=0,
-                tools=[mcp_client.session] # FastMCP Client의 세션을 Tool 정의로 전달
+                tools=[mcp_client.session]  # MCP 세션을 Tool 정의로 전달
             )
         )
 
-        while response.function_calls:
+        # Tool 호출 루프
+        while getattr(response, "function_calls", None):
             tool_results = []
-            
-            # 응답 요약 표시 (사용자에게 작업 중임을 알림)
-            message_placeholder.write(f"🔎 AI가 필요한 데이터를 **MCP 서버**를 통해 수집 중입니다 ({len(response.function_calls)}개 요청)...")
-            
-            # Tool Call 결과를 history에 추가 (모델이 요청했던 내용)
+
+            message_placeholder.write(f"🔎 AI가 MCP 서버를 통해 데이터를 가져오는 중입니다 ({len(response.function_calls)}개)...")
             full_history.append(response.candidates[0].content)
-    
+
             for call in response.function_calls:
                 tool_name = call.name
                 tool_args = dict(call.args)
-                
+
                 try:
                     tool_output = await async_tool_call(mcp_client, tool_name, tool_args)
-                    
-                    # 결과를 JSON 문자열로 변환 (모델에 전달하기 위함)
                     if not isinstance(tool_output, (str, bytes)):
-                        # Tool의 반환 값이 문자열이 아닌 경우 JSON으로 변환
                         tool_output = json.dumps(tool_output, ensure_ascii=False, indent=2)
-                        
-                    message_placeholder.write(
-                        f"✅ Tool 호출: `{tool_name}` 실행 완료."
-                    )
-                    
+                    message_placeholder.write(f"✅ Tool 호출 `{tool_name}` 완료")
                 except Exception as e:
                     tool_output = f"Tool 실행 오류 ({tool_name}): {e}"
-                    message_placeholder.write(
-                        f"❌ Tool 호출: `{tool_name}` 실행 실패. 오류: {tool_output}"
-                    )
-    
-                # Tool 실행 결과를 포함하여 history에 추가
+                    message_placeholder.write(f"❌ Tool 호출 실패: {tool_output}")
+
                 tool_results.append(
                     genai.types.Part.from_function_response(
-                        name=tool_name, 
+                        name=tool_name,
                         response=tool_output
                     )
                 )
-        
-            # Tool 결과 메시지 (역할 'tool')를 history에 추가
+
+            # Tool 결과를 Gemini에 재전달
             full_history.append(genai.types.Content(role="tool", parts=tool_results))
-            
-            # Tool 실행 결과를 포함하여 다시 Gemini에 요청
             response = gemini_client.models.generate_content(
                 model="gemini-2.5-pro",
                 contents=full_history,
@@ -172,10 +149,17 @@ async def generate_chat_response(messages: List[Dict[str, str]], system_prompt: 
                     tools=[mcp_client.session]
                 )
             )
-        
-    # 최종 응답 추출 및 표시
+
     message_placeholder.write(response.text)
-    return full_response
+    return response.text
+
+
+# --- Streamlit용 동기 래퍼 함수 ---
+def generate_chat_response(messages: List[Dict[str, str]], system_prompt: str, message_placeholder):
+    """
+    Streamlit에서 비동기 코드 실행을 안전하게 감싸기 위한 동기 버전.
+    """
+    return asyncio.run(generate_chat_response_async(messages, system_prompt, message_placeholder))
 
 
 
@@ -236,17 +220,9 @@ if user_input:
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            full_response = loop.run_until_complete(
-                generate_chat_response(current_messages, system_prompt, message_placeholder)
-            )
-            current_messages.append({"role": "assistant", "content": full_response})
-        finally:
-            loop.close()
+        full_response = generate_chat_response(current_messages, system_prompt, message_placeholder)
+        current_messages.append({"role": "assistant", "content": full_response})
 
-    # 대화 제목 자동 설정 (첫 질문에 대해)
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
