@@ -20,6 +20,25 @@ from google.generativeai import types
 # --- FastMCP 서버 설정 ---
 MCP_SERVER_URL = st.secrets.api.mcp_server_url  # streamlit cloud secrets에 url 추가 필요
 
+def remove_title_recursively(schema: dict):
+    """
+    JSON Schema 딕셔너리와 그 하위의 모든 딕셔너리에서 'title' 키를 재귀적으로 제거합니다.
+    """
+    if not isinstance(schema, dict):
+        return
+
+    # 현재 레벨에서 'title' 제거
+    if "title" in schema:
+        del schema["title"]
+
+    # 'properties' 내부를 순회하며 재귀적으로 제거
+    if "properties" in schema and isinstance(schema["properties"], dict):
+        for prop_name, prop_schema in schema["properties"].items():
+            remove_title_recursively(prop_schema)
+            
+    # 'items' 내부를 순회하며 재귀적으로 제거 (배열 형식 처리)
+    if "items" in schema and isinstance(schema["items"], dict):
+        remove_title_recursively(schema["items"])
 
 async def async_get_tools(url):
     async with Client(url) as client:
@@ -30,8 +49,8 @@ async def async_get_tools(url):
         for tool in tool_list:
             # FastMCP의 inputSchema는 dict 형태.
             input_schema = getattr(tool, "inputSchema", None) 
-            if input_schema and isinstance(input_schema, dict) and "title" in input_schema:
-                del input_schema["title"]
+            if input_schema and isinstance(input_schema, dict):
+                remove_title_recursively(input_schema)
             
             # FunctionDeclaration 생성: name과 parameters 사용
             function_declaration = types.FunctionDeclaration(
@@ -253,6 +272,7 @@ if user_input:
     # AI 응답을 대화 기록에 추가
 
     current_messages.append({"role": "assistant", "content": full_response})
+
 
 
 
