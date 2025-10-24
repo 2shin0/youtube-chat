@@ -187,7 +187,7 @@ if user_input:
                 
                 # FastMCP 클라이언트를 이용해 실제 서버에 요청 및 Tool 실행
                 try:
-                        tool_output = asyncio.run(
+                    tool_output = asyncio.run(
                         async_tool_call(MCP_SERVER_URL, tool_name, tool_args)
                     )
                     
@@ -232,6 +232,7 @@ if user_input:
     # AI 응답을 대화 기록에 추가
 
     current_messages.append({"role": "assistant", "content": full_response})
+
 
 
 
