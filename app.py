@@ -19,10 +19,22 @@ import asyncio
 # --- FastMCP 서버 설정 ---
 MCP_SERVER_URL = st.secrets.api.mcp_server_url  # streamlit cloud secrets에 url 추가 필요
 
+def convert_fastmcp_tools_to_gemini_tools(fastmcp_tools):
+    gemini_tools = []
+    for t in fastmcp_tools:
+        func_decl = FunctionDeclaration(
+            name=t.name,
+            description=getattr(t, 'description', ''),
+            parameters=Schema(type="object", properties=t.inputSchema.get('properties', {}) if t.inputSchema else {})
+        )
+        tool = Tool(function_declarations=[func_decl])
+        gemini_tools.append(tool)
+    return gemini_tools
+
 async def async_get_tools(url):
     async with Client(url) as client:
-            tool_list = await client.list_tools()
-            return [(tool.name, getattr(tool, "inputSchema", None)) for tool in tool_list]
+        tool_list = await client.list_tools()
+        return convert_fastmcp_tools_to_gemini_tools(tool_list)
         
 try:
     available_tools = asyncio.run(async_get_tools(MCP_SERVER_URL))
@@ -232,6 +244,7 @@ if user_input:
     # AI 응답을 대화 기록에 추가
 
     current_messages.append({"role": "assistant", "content": full_response})
+
 
 
 
