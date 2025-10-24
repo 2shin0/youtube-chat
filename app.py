@@ -12,6 +12,7 @@ import streamlit as st
 import google.generativeai as genai
 import time
 from fastmcp import Client
+from fastmcp.client.auth import OAuth
 import json
 import asyncio
 
@@ -20,8 +21,8 @@ import asyncio
 MCP_SERVER_URL = st.secrets.api.mcp_server_url  # streamlit cloud secrets에 url 추가 필요
 
 async def async_get_tools(url):
-    async with Client(url) as client:
-            # client가 연결된 상태이므로 await list_tools() 호출 가능
+    oauth = OAuth(mcp_url=url)
+    async with Client(url, auth=oauth) as client:
             tool_list = await client.list_tools()
             return [tool.json_schema for tool in tool_list]
         
@@ -34,7 +35,8 @@ except Exception as e:
 
 async def async_tool_call(url, tool_name, tool_args):
     """FastMCP 클라이언트를 연결하고 특정 툴을 호출합니다."""
-    async with Client(url) as client:
+    oauth = OAuth(mcp_url=url)
+    async with Client(url, auth=oauth) as client:
         return await client.call(tool_name, **tool_args)
 
 
@@ -232,6 +234,7 @@ if user_input:
     # AI 응답을 대화 기록에 추가
 
     current_messages.append({"role": "assistant", "content": full_response})
+
 
 
 
