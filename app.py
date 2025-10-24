@@ -22,7 +22,7 @@ MCP_SERVER_URL = st.secrets.api.mcp_server_url  # streamlit cloud secrets에 url
 try:
     mcp_client = Client(MCP_SERVER_URL)
     # 서버에서 Tool 스키마를 가져옴 (Tool Calling에 필요)
-    available_tools = mcp_client.list_tools()
+    available_tools = [tool.json_schema for tool in mcp_client.list_tools()]
 except Exception as e:
     st.error(f"MCP 서버 연결 실패 또는 Tool 목록 로딩 실패: {e}")
     st.stop()
@@ -220,4 +220,5 @@ if user_input:
     # AI 응답을 대화 기록에 추가
 
     current_messages.append({"role": "assistant", "content": full_response})
+
 
