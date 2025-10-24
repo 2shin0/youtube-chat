@@ -22,7 +22,7 @@ MCP_SERVER_URL = st.secrets.api.mcp_server_url  # streamlit cloud secrets에 url
 async def async_get_tools(url):
     async with Client(url) as client:
             tool_list = await client.list_tools()
-            return [(tool.name, getattr(tool, "inputSchema", None)) for tool in tools]
+            return [(tool.name, getattr(tool, "inputSchema", None)) for tool in tool_list]
         
 try:
     available_tools = asyncio.run(async_get_tools(MCP_SERVER_URL))
@@ -232,6 +232,7 @@ if user_input:
     # AI 응답을 대화 기록에 추가
 
     current_messages.append({"role": "assistant", "content": full_response})
+
 
 
 
