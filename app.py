@@ -12,31 +12,34 @@ import streamlit as st
 import google.generativeai as genai
 import time
 from fastmcp import Client
+from fastmcp.client.auth import BearerAuth
 import json
 import asyncio
-from google.generativeai import types
+from typing import List, Dict, Any
 
+# --- 환경변수 설정 ---
 token = st.secrets.oauth.token
+MCP_SERVER_URL = st.secrets.api.mcp_server_url  
+api_key = st.secrets.gemini_api_key
+
+
 
 # --- FastMCP 서버 설정 ---
-MCP_SERVER_URL = st.secrets.api.mcp_server_url  
+client = Client(
+    MCP_SERVER_URL,
+    auth=BearerAuth(token)
+)
 
-async def async_get_tools(url):
-    async with Client(url, autho=token) as client:
-            tool_list = await client.list_tools()
-            return [(tool.name, getattr(tool, "inputSchema", None)) for tool in tool_list]
-        
-try:
-    available_tools = asyncio.run(async_get_tools(MCP_SERVER_URL))
-    
-except Exception as e:
-    st.error(f"MCP 서버 연결 실패 또는 Tool 목록 로딩 실패: {e}")
-    st.stop()
+gemini_client = genai.Client(api_key=api_key)
 
-async def async_tool_call(url, tool_name, tool_args):
+
+
+# --- FastMCP Tool 호출 함수 ---
+async def async_tool_call(tool_name: str, tool_args: Dict[str, Any]) -> Any:
     """FastMCP 클라이언트를 연결하고 특정 툴을 호출합니다."""
-    async with Client(url) as client:
-        result = await client.call_tool(tool_name, tool_args)
+    # mcp_client는 전역 객체이므로 인자로 전달하지 않고 바로 사용합니다.
+    async with mcp_client:
+        result = await mcp_client.call_tool(tool_name, tool_args)
         return result.data
 
 
@@ -95,6 +98,96 @@ for session_id, session_data in st.session_state.chat_sessions.items():
 
 
 
+# --- 비동기 챗봇 응답 생성 함수 ---
+async def generate_chat_response(messages: List[Dict[str, str]], system_prompt: str, message_placeholder):
+    """
+    사용자 메시지를 기반으로 Gemini API와 FastMCP Tool Calling을 통합하여 응답을 생성합니다.
+    """
+    
+    # 1. Gemini API에 전달할 대화 기록 포맷팅
+    # FastMCP Tool Calling을 포함한 복잡한 대화는 generate_content에 전체 history를 전달하는 것이 안정적입니다.
+    # 역할은 'user'와 'model' (이전 AI 응답), Tool 결과는 'tool'입니다.
+    full_history = []
+    for m in messages:
+        # Gemini API는 'assistant' 대신 'model' 역할을 사용합니다.
+        role = "model" if m["role"] == "assistant" else m["role"]
+        full_history.append(genai.types.Content(role=role, parts=[genai.types.Part.from_text(m["content"])]))
+    
+    # Tool Calling 반복
+    response = None
+    
+    # 초기 요청 (사용자 메시지 포함)
+    response = gemini_client.models.generate_content(
+        model="gemini-2.5-pro",
+        contents=full_history,
+        config=genai.types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=0,
+            tools=[mcp_client.session] # FastMCP Client의 세션을 Tool 정의로 전달
+        )
+    )
+    
+    while response.function_calls:
+        tool_results = []
+        
+        # 응답 요약 표시 (사용자에게 작업 중임을 알림)
+        message_placeholder.write(f"🔎 AI가 필요한 데이터를 **MCP 서버**를 통해 수집 중입니다 ({len(response.function_calls)}개 요청)...")
+        
+        # Tool Call 결과를 history에 추가 (모델이 요청했던 내용)
+        full_history.append(response.candidates[0].content)
+
+        for call in response.function_calls:
+            tool_name = call.name
+            tool_args = dict(call.args)
+            
+            try:
+                # CRITICAL: FastMCP는 비동기이므로 await/asyncio.run으로 실행
+                tool_output = await async_tool_call(tool_name, tool_args)
+                
+                # 결과를 JSON 문자열로 변환 (모델에 전달하기 위함)
+                if not isinstance(tool_output, (str, bytes)):
+                    # Tool의 반환 값이 문자열이 아닌 경우 JSON으로 변환
+                    tool_output = json.dumps(tool_output, ensure_ascii=False, indent=2)
+                    
+                message_placeholder.write(
+                    f"✅ Tool 호출: `{tool_name}` 실행 완료."
+                )
+                
+            except Exception as e:
+                tool_output = f"Tool 실행 오류 ({tool_name}): {e}"
+                message_placeholder.write(
+                    f"❌ Tool 호출: `{tool_name}` 실행 실패. 오류: {tool_output}"
+                )
+
+            # Tool 실행 결과를 포함하여 history에 추가
+            tool_results.append(
+                genai.types.Part.from_function_response(
+                    name=tool_name, 
+                    response=tool_output
+                )
+            )
+        
+        # Tool 결과 메시지 (역할 'tool')를 history에 추가
+        full_history.append(genai.types.Content(role="tool", parts=tool_results))
+        
+        # Tool 실행 결과를 포함하여 다시 Gemini에 요청
+        response = gemini_client.models.generate_content(
+            model="gemini-2.5-pro",
+            contents=full_history,
+            config=genai.types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=0,
+                tools=[mcp_client.session]
+            )
+        )
+        
+    # 최종 응답 추출 및 표시
+    full_response = response.text
+    message_placeholder.write(full_response)
+    return full_response
+
+
+
 # --- 메인 챗봇 인터페이스 ---
 
 # 페이지 설정
@@ -109,31 +202,8 @@ for message in current_messages:
     with st.chat_message(message["role"]):
         st.write(message["content"])
 
-# Gemini API 키 설정 
-api_key = st.secrets.gemini_api_key
-
-# Gemini 클라이언트 생성
-genai.configure(api_key=api_key)
-
-# 사용자 입력 받기
-user_input = st.chat_input("메시지를 입력하세요...")
-
-# 사용자가 메시지를 입력했을 때
-if user_input:        
-    # 사용자 메시지를 현재 세션의 기록에 추가
-    current_messages.append({"role": "user", "content": user_input})
-
-    # 사용자 메시지를 화면에 표시
-    with st.chat_message("user"):
-        st.write(user_input)
-
-    # AI의 응답을 화면에 표시
-    with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        full_response = ""
-
-        # 시스템 프롬프트 정의 
-        system_prompt = """
+# 시스템 프롬프트 정의
+system_prompt = """
         당신은 유튜브 데이터 분석 전문가입니다.
         당신의 역할은 YouTube 데이터를 분석하여 인사이트를 도출하는 것입니다.
 
@@ -159,88 +229,46 @@ if user_input:
         - 언어는 입력 데이터의 언어(한국어/영어 등)에 맞게 동일하게 유지합니다.
         """
 
-        # Gemini API 호출
-        model = genai.GenerativeModel(
-            "gemini-2.5-pro",
-            system_instruction=system_prompt,
-            tools = available_tools
-        )
+# 사용자 입력 받기
+user_input = st.chat_input("메시지를 입력하세요...")
+
+# 사용자가 메시지를 입력했을 때
+if user_input:          
+    # 사용자 메시지를 현재 세션의 기록에 추가
+    current_messages.append({"role": "user", "content": user_input})
+
+    # 사용자 메시지를 화면에 표시
+    with st.chat_message("user"):
+        st.write(user_input)
+
+    # AI의 응답을 화면에 표시할 영역
+    with st.chat_message("assistant"):
+        message_placeholder = st.empty()
         
-        gemini_history = [
-            {"role": m["role"], "parts": [m["content"]]}
-            for m in current_messages[:-1]
-        ]
-
-        chat = model.start_chat(history=gemini_history)
-
-        # 첫 메시지 전송 및 tool calling 반복 시작
-        response = chat.send_message(current_messages[-1]["content"]) # 마지막 사용자 메시지 전송
-
-        # Tool Calling이 끝날 때까지 반복
-        while response.function_calls:
-            tool_results = []
-            
-            # 응답 요약 표시 (사용자에게 작업 중임을 알림)
-            message_placeholder.write(f"🔎 AI가 필요한 데이터를 **MCP 서버**를 통해 수집 중입니다 ({len(response.function_calls)}개 요청)...") 
-            
-            for call in response.function_calls:
-                tool_name = call.name
-                tool_args = dict(call.args)
-                
-                # FastMCP 클라이언트를 이용해 실제 서버에 요청 및 Tool 실행
-                try:
-                    tool_output = asyncio.run(
-                        async_tool_call(MCP_SERVER_URL, tool_name, tool_args)
-                    )
-                    
-                    # 결과를 JSON 문자열로 변환 (모델에 전달하기 위함)
-                    if not isinstance(tool_output, str):
-                        tool_output = json.dumps(tool_output, ensure_ascii=False, indent=2)
-                        
-                    message_placeholder.write(
-                        f"✅ Tool 호출: `{tool_name}` 실행 완료."
-                    )
-                    
-                except Exception as e:
-                    tool_output = f"Tool 실행 오류 ({tool_name}): {e}"
-                    message_placeholder.write(
-                        f"❌ Tool 호출: `{tool_name}` 실행 실패. 오류: {tool_output}"
-                    )
-
-                # Tool 실행 결과를 Gemini에 다시 전달할 형태로 준비
-                tool_results.append(
-                    {
-                        "function_response": {
-                            "name": tool_name,
-                            "response": tool_output,
-                        }
-                    }
+        # CRITICAL FIX: 비동기 함수를 동기 Streamlit 흐름에서 실행
+        try:
+            full_response = asyncio.run(
+                generate_chat_response(
+                    current_messages, 
+                    system_prompt, 
+                    message_placeholder
                 )
-            # Tool 실행 결과를 포함하여 다시 Gemini에 요청 
-            response = chat.send_message(tool_results)
+            )
+            
+            # AI 응답을 대화 기록에 추가
+            current_messages.append({"role": "assistant", "content": full_response})
 
-        # 최종 분석 결과 출력
-        full_response = ""
-        if hasattr(response, 'stream') and callable(response.stream):
-            for chunk in response.stream():
-                if chunk.text:
-                    full_response += chunk.text
-                    message_placeholder.write(full_response + "▌")
-        else: 
-             full_response = response.text
-             
-        message_placeholder.write(full_response)
+        except Exception as e:
+            error_message = f"챗봇 실행 중 치명적인 오류 발생: {e}"
+            message_placeholder.error(error_message)
+            # 오류 발생 시 마지막 사용자 메시지를 기록에서 제거 (재시도 용이)
+            current_messages.pop()
+            print(error_message)
 
-    # AI 응답을 대화 기록에 추가
-
-    current_messages.append({"role": "assistant", "content": full_response})
-
-
-
-
-
-
-
+    # 대화 제목 자동 설정 (첫 질문에 대해)
+    if current_session["title"] == "새 대화":
+        current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
+        st.rerun()
 
 
 
