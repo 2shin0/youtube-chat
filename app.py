@@ -14,7 +14,7 @@ import time
 from fastmcp import Client
 import json
 import asyncio
-from google.generativeai.types import Tool, FunctionDeclaration, Schema
+from google.generativeai.types import Tool, FunctionDeclaration
 
 
 # --- FastMCP 서버 설정 ---
@@ -25,8 +25,11 @@ def convert_fastmcp_tools_to_gemini_tools(fastmcp_tools):
     for t in fastmcp_tools:
         func_decl = FunctionDeclaration(
             name=t.name,
-            description=getattr(t, 'description', ''),
-            parameters=Schema(type="object", properties=t.inputSchema.get('properties', {}) if t.inputSchema else {})
+            description=t.description or '',
+            parameters={
+                "type": "object",
+                "properties": t.inputSchema.get('properties', {}) if t.inputSchema else {}
+            }
         )
         tool = Tool(function_declarations=[func_decl])
         gemini_tools.append(tool)
@@ -245,6 +248,7 @@ if user_input:
     # AI 응답을 대화 기록에 추가
 
     current_messages.append({"role": "assistant", "content": full_response})
+
 
 
 
