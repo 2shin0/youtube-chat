@@ -30,6 +30,8 @@ async def async_get_tools(url):
         for tool in tool_list:
             # FastMCP의 inputSchema는 dict 형태.
             input_schema = getattr(tool, "inputSchema", None) 
+            if input_schema and isinstance(input_schema, dict) and "title" in input_schema:
+                del input_schema["title"]
             
             # FunctionDeclaration 생성: name과 parameters 사용
             function_declaration = types.FunctionDeclaration(
@@ -251,6 +253,7 @@ if user_input:
     # AI 응답을 대화 기록에 추가
 
     current_messages.append({"role": "assistant", "content": full_response})
+
 
 
 
