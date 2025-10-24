@@ -25,7 +25,7 @@ api_key = st.secrets.gemini_api_key
 
 
 # --- FastMCP 서버 설정 ---
-client = Client(
+mcp_client = Client(
     MCP_SERVER_URL,
     auth=BearerAuth(token)
 )
@@ -269,6 +269,7 @@ if user_input:
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
+
 
 
 
