@@ -11,7 +11,7 @@
 import streamlit as st
 import google.generativeai as genai
 import time
-from fastmcp.client import MCPClient
+from fastmcp import Client
 import json
 
 
@@ -20,7 +20,7 @@ MCP_SERVER_URL = st.secrets.api.mcp_server_url  # streamlit cloud secrets에 url
 
 # 클라이언트 생성
 try:
-    mcp_client = MCPClient(MCP_SERVER_URL)
+    mcp_client = Client(MCP_SERVER_URL)
     # 서버에서 Tool 스키마를 가져옴 (Tool Calling에 필요)
     available_tools = mcp_client.get_tools()
 except Exception as e:
@@ -218,4 +218,5 @@ if user_input:
         message_placeholder.write(full_response)
 
     # AI 응답을 대화 기록에 추가
+
     current_messages.append({"role": "assistant", "content": full_response})
