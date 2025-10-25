@@ -51,8 +51,12 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
     full_history = []
     for m in messages:
         role = "model" if m["role"] == "assistant" else m["role"]
-        full_history.append(genai.types.Content(role=role, parts=[genai.types.Part.from_text(m["content"])]))
-
+        full_history.append(
+            genai.types.Content(
+                role=role,
+                parts=[genai.types.Part.from_text(str(m.get("content", "")))]
+            )
+        )
     async with mcp_client:
         response = await gemini_client.aio.models.generate_content(
             model="gemini-2.5-pro",
@@ -76,6 +80,7 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
                     tool_output = await async_tool_call(mcp_client, tool_name, tool_args)
                     if not isinstance(tool_output, (str, bytes)):
                         tool_output = json.dumps(tool_output, ensure_ascii=False, indent=2)
+                    tool_output = str(tool_output)
                     placeholder.write(f"✅ Tool `{tool_name}` 완료")
                 except Exception as e:
                     tool_output = f"Tool 오류 ({tool_name}): {e}"
@@ -153,3 +158,4 @@ if user_input:
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
+
