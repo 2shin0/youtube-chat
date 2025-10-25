@@ -100,7 +100,7 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
         full_history.append(genai.types.Content(role=role, parts=[genai.types.Part.from_text(text=m["content"])]))
 
     async with mcp_client:
-        response = await gemini_client.models.generate_content_async(
+        response = await gemini_client.aio.models.generate_content(
             model="gemini-2.5-pro",
             contents=full_history,
             config=genai.types.GenerateContentConfig(
@@ -139,7 +139,7 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
 
             # Tool 결과를 Gemini에 재전달
             full_history.append(genai.types.Content(role="tool", parts=tool_results))
-            response = await gemini_client.models.generate_content_async(
+            response = await gemini_client.aio.models.generate_content(
                 model="gemini-2.5-pro",
                 contents=full_history,
                 config=genai.types.GenerateContentConfig(
@@ -154,11 +154,21 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
 
 
 # --- Streamlit용 동기 래퍼 함수 ---
+def run_async(coro):
+    """Streamlit 내에서 asyncio.run() 충돌 없이 실행"""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        return asyncio.ensure_future(coro)
+    else:
+        return asyncio.run(coro)
+
+
 def generate_chat_response(messages: List[Dict[str, str]], system_prompt: str, message_placeholder):
-    """
-    Streamlit에서 비동기 코드 실행을 안전하게 감싸기 위한 동기 버전.
-    """
-    return asyncio.run(generate_chat_response_async(messages, system_prompt, message_placeholder))
+    return run_async(generate_chat_response_async(messages, system_prompt, message_placeholder))
 
 
 
@@ -207,28 +217,19 @@ system_prompt = """
 user_input = st.chat_input("메시지를 입력하세요...")
 
 # 사용자가 메시지를 입력했을 때
-if user_input:          
-    # 사용자 메시지를 현재 세션의 기록에 추가
+if user_input:
     current_messages.append({"role": "user", "content": user_input})
 
-    # 사용자 메시지를 화면에 표시
     with st.chat_message("user"):
         st.write(user_input)
 
-    # AI의 응답을 화면에 표시할 영역
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
-        
         full_response = generate_chat_response(current_messages, system_prompt, message_placeholder)
+        if asyncio.isfuture(full_response):
+            full_response = asyncio.run(full_response)
         current_messages.append({"role": "assistant", "content": full_response})
 
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
-
-
-
-
-
-
-
