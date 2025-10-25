@@ -11,7 +11,7 @@ from fastmcp import Client
 from google import genai
 
 # --- 환경변수 ---
-MCP_SERVER_URL = st.secrets.mcp_server_url
+MCP_SERVER_URL = st.secrets.api.mcp_server_url
 API_KEY = st.secrets.gemini_api_key
 
 # --- FastMCP / Gemini 클라이언트 ---
@@ -405,4 +405,5 @@ if user_input:
 #     if current_session["title"] == "새 대화":
 #         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
 #         st.rerun()
+
 
