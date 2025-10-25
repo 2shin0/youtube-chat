@@ -1,7 +1,6 @@
 import streamlit as st
 import time
 import json
-import asyncio
 from typing import List, Dict, Any
 from fastmcp import Client
 from google import genai
@@ -14,12 +13,19 @@ API_KEY = st.secrets.gemini_api_key
 mcp_client = Client(MCP_SERVER_URL)
 gemini_client = genai.Client(api_key=API_KEY)
 
-# --- FastMCP Tool 호출 비동기 함수 ---
-async def async_tool_call(client: Client, tool_name: str, tool_args: Dict[str, Any]) -> Any:
-    result = await client.call_tool(tool_name, tool_args)
-    return result.data
+# --- FastMCP Tool 호출 함수 ---
+def call_tool_sync(tool_name: str, tool_args: Dict[str, Any]):
+    """동기 호출, Streamlit-friendly"""
+    try:
+        result = mcp_client.call_tool(tool_name, tool_args)
+        output = result.data
+        if not isinstance(output, str):
+            output = json.dumps(output, ensure_ascii=False, indent=2)
+        return output, None
+    except Exception as e:
+        return None, str(e)
 
-# --- 세션 상태 초기화 ---
+# --- 세션 초기화 ---
 if "chat_sessions" not in st.session_state:
     st.session_state.chat_sessions = {}
 if "current_session_id" not in st.session_state:
@@ -36,7 +42,7 @@ if st.session_state.current_session_id is None or st.session_state.current_sessi
 current_session = st.session_state.chat_sessions[st.session_state.current_session_id]
 current_messages = current_session["messages"]
 
-# --- 사이드바: 세션 관리 ---
+# --- 사이드바 ---
 st.sidebar.title("💬 대화 기록")
 if st.sidebar.button("➕ 새 대화 시작"):
     new_chat_session()
@@ -46,86 +52,9 @@ for session_id, session_data in st.session_state.chat_sessions.items():
     if st.sidebar.button(session_data["title"], key=session_id, use_container_width=True):
         st.session_state.current_session_id = session_id
         st.experimental_rerun()
-st.sidebar.caption("⚠️ 이 기록은 브라우저를 닫으면 사라집니다.")
+st.sidebar.caption("⚠️ 브라우저 종료 시 기록 사라짐")
 
-# --- 비동기 챗봇 응답 ---
-async def generate_chat_response_async(messages: List[Dict[str, str]], system_prompt: str, progress_placeholder):
-    full_history = []
-    for m in messages:
-        role = "model" if m["role"] == "assistant" else m["role"]
-        full_history.append(genai.types.Content(role=role, parts=[genai.types.Part.from_text(text=m["content"])]))
-
-    async with mcp_client:
-        response = await gemini_client.aio.models.generate_content(
-            model="gemini-2.5-pro",
-            contents=full_history,
-            config=genai.types.GenerateContentConfig(
-                system_instruction=system_prompt,
-                temperature=0,
-                tools=[mcp_client]  # Tool 객체 올바르게 전달
-            )
-        )
-
-        tool_messages = []
-
-        async def update_progress(msg):
-            tool_messages.append(msg)
-            # 동기 함수이므로 to_thread 사용
-            await asyncio.to_thread(progress_placeholder.markdown, "\n".join(tool_messages))
-
-        # function_calls 체크
-        tool_calls = getattr(response.candidates[0], "function_calls", [])
-        while tool_calls:
-            await update_progress(f"🔎 AI가 MCP Tool 호출 중 ({len(tool_calls)}개)...")
-            full_history.append(response.candidates[0].content)
-
-            for call in tool_calls:
-                tool_name = call.name
-                tool_args = dict(call.args)
-
-                try:
-                    await update_progress(f"⏳ `{tool_name}` 호출 중...")
-                    tool_output = await async_tool_call(mcp_client, tool_name, tool_args)
-                    if not isinstance(tool_output, str):
-                        tool_output = json.dumps(tool_output, ensure_ascii=False, indent=2)
-                    await update_progress(f"✅ `{tool_name}` 완료")
-                except Exception as e:
-                    await update_progress(f"❌ `{tool_name}` 실패: {e}")
-                    tool_output = f"Tool 실행 오류 ({tool_name}): {e}"
-
-                full_history.append(genai.types.Content(
-                    role="tool",
-                    parts=[genai.types.Part.from_function_response(name=tool_name, response=tool_output)]
-                ))
-
-            response = await gemini_client.aio.models.generate_content(
-                model="gemini-2.5-pro",
-                contents=full_history,
-                config=genai.types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=0,
-                    tools=[mcp_client]
-                )
-            )
-
-            tool_calls = getattr(response.candidates[0], "function_calls", [])
-
-    return response.candidates[0].content
-
-# --- Streamlit 동기 실행 래퍼 ---
-def run_async(coro):
-    try:
-        loop = asyncio.get_running_loop()
-        # 이미 루프 실행 중이면 Thread-safe 실행
-        future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return future.result()
-    except RuntimeError:
-        return asyncio.run(coro)
-
-def generate_chat_response(messages: List[Dict[str, str]], system_prompt: str, progress_placeholder):
-    return run_async(generate_chat_response_async(messages, system_prompt, progress_placeholder))
-
-# --- 메인 UI ---
+# --- Streamlit UI ---
 st.set_page_config(page_title="유튜브 데이터 분석 챗봇", page_icon="📊")
 st.title("📊 유튜브 데이터 분석 챗봇")
 st.write(f"**{current_session['title']}**")
@@ -150,18 +79,51 @@ if user_input:
     with st.chat_message("user"):
         st.write(user_input)
 
-    # 채팅창 위에 Tool 진행 상태 표시
     progress_placeholder = st.empty()
     with st.chat_message("assistant"):
-        with st.spinner("AI가 응답을 생성 중입니다..."):
-            full_response = generate_chat_response(current_messages, system_prompt, progress_placeholder)
-        st.write(full_response)
+        # 스트리밍으로 응답 받기
+        full_response_text = ""
+        for event in gemini_client.models.stream_generate_content(
+            model="gemini-2.5-pro",
+            contents=[
+                genai.types.Content(
+                    role="user" if m["role"]=="user" else "model",
+                    parts=[genai.types.Part.from_text(text=m["content"])]
+                ) for m in current_messages
+            ],
+            config=genai.types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=0,
+                tools=[mcp_client]
+            )
+        ):
+            # Tool 호출 이벤트 처리
+            if event.type == "tool_call":
+                tool_name = event.name
+                tool_args = dict(event.args)
+                progress_placeholder.markdown(f"🔎 AI가 MCP Tool 호출 중: `{tool_name}`")
+                tool_output, error = call_tool_sync(tool_name, tool_args)
+                if error:
+                    progress_placeholder.markdown(f"❌ `{tool_name}` 실패: {error}")
+                    tool_output = f"Tool 실행 오류: {error}"
+                else:
+                    progress_placeholder.markdown(f"✅ `{tool_name}` 완료")
+                # Tool 결과를 바로 추가
+                gemini_client.models.send_tool_response(event, tool_output)
 
-    current_messages.append({"role": "assistant", "content": full_response})
+            # 일반 텍스트 이벤트
+            elif event.type == "message":
+                full_response_text += event.text
+                progress_placeholder.markdown(full_response_text)
+
+        st.write(full_response_text)
+
+    current_messages.append({"role": "assistant", "content": full_response_text})
 
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
+
 
 
 
@@ -407,6 +369,7 @@ if user_input:
 #     if current_session["title"] == "새 대화":
 #         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
 #         st.rerun()
+
 
 
 
