@@ -1,25 +1,29 @@
+# 3data/data_analysis.py 기반 코드
+# Streamlit Cloud에서 Gemini API Key, MCP URL 환경변수 설정 필요
+# Streamlit 앱으로 FastMCP Tool Calling 통합
+# 비동기 방식으로(서버에서 데이터 받아오는 동안 UI 멈추지 않고 계속 돌아가도록) Gemini API와 MCP Tool 호출 연동
+
+
 # 필요한 라이브러리 불러오기
 import streamlit as st
 import time
 from fastmcp import Client
-from fastmcp.client.auth import BearerAuth
 import json
 import asyncio
 from typing import List, Dict, Any
 from google import genai
 
 
+
 # --- 환경변수 설정 ---
-# token = st.secrets.oauth.token
-MCP_SERVER_URL = st.secrets.api.mcp_server_url  
+MCP_SERVER_URL = st.secrets.mcp_server_url  
 api_key = st.secrets.gemini_api_key
 
 
 
-# --- FastMCP 서버 설정 ---
+# --- FastMCP 서버, Gemini 설정 ---
 mcp_client = Client(
-    MCP_SERVER_URL,
-    # auth=BearerAuth(token)
+    MCP_SERVER_URL
 )
 
 gemini_client = genai.Client(api_key=api_key)
@@ -224,10 +228,3 @@ if user_input:
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
-
-
-
-
-
-
-
