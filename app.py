@@ -1,8 +1,3 @@
-# Streamlit 앱: 유튜브 데이터 분석 챗봇
-# Streamlit Cloud에서 Gemini API Key, MCP URL 환경변수 필요
-# 비동기 방식으로 MCP Tool 호출 및 Gemini API 연동
-# Tool 호출 단계 실시간 표시
-
 import streamlit as st
 import time
 import json
@@ -45,12 +40,12 @@ current_messages = current_session["messages"]
 st.sidebar.title("💬 대화 기록")
 if st.sidebar.button("➕ 새 대화 시작"):
     new_chat_session()
-    st.rerun()
+    st.experimental_rerun()
 
 for session_id, session_data in st.session_state.chat_sessions.items():
     if st.sidebar.button(session_data["title"], key=session_id, use_container_width=True):
         st.session_state.current_session_id = session_id
-        st.rerun()
+        st.experimental_rerun()
 st.sidebar.caption("⚠️ 이 기록은 브라우저를 닫으면 사라집니다.")
 
 # --- 비동기 챗봇 응답 ---
@@ -67,22 +62,24 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
             config=genai.types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 temperature=0,
-                tools=[mcp_client.session]
+                tools=[mcp_client]  # Tool 객체 올바르게 전달
             )
         )
 
-        # Tool 호출 단계 표시용 리스트
         tool_messages = []
 
         async def update_progress(msg):
             tool_messages.append(msg)
-            progress_placeholder.markdown("\n".join(tool_messages))
+            # 동기 함수이므로 to_thread 사용
+            await asyncio.to_thread(progress_placeholder.markdown, "\n".join(tool_messages))
 
-        while getattr(response, "function_calls", None):
-            await update_progress(f"🔎 AI가 MCP Tool 호출 중 ({len(response.function_calls)}개)...")
+        # function_calls 체크
+        tool_calls = getattr(response.candidates[0], "function_calls", [])
+        while tool_calls:
+            await update_progress(f"🔎 AI가 MCP Tool 호출 중 ({len(tool_calls)}개)...")
             full_history.append(response.candidates[0].content)
 
-            for call in response.function_calls:
+            for call in tool_calls:
                 tool_name = call.name
                 tool_args = dict(call.args)
 
@@ -107,21 +104,22 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
                 config=genai.types.GenerateContentConfig(
                     system_instruction=system_prompt,
                     temperature=0,
-                    tools=[mcp_client.session]
+                    tools=[mcp_client]
                 )
             )
 
-    return response.text
+            tool_calls = getattr(response.candidates[0], "function_calls", [])
+
+    return response.candidates[0].content
 
 # --- Streamlit 동기 실행 래퍼 ---
 def run_async(coro):
     try:
         loop = asyncio.get_running_loop()
+        # 이미 루프 실행 중이면 Thread-safe 실행
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result()
     except RuntimeError:
-        loop = None
-    if loop and loop.is_running():
-        return asyncio.ensure_future(coro)
-    else:
         return asyncio.run(coro)
 
 def generate_chat_response(messages: List[Dict[str, str]], system_prompt: str, progress_placeholder):
@@ -157,8 +155,6 @@ if user_input:
     with st.chat_message("assistant"):
         with st.spinner("AI가 응답을 생성 중입니다..."):
             full_response = generate_chat_response(current_messages, system_prompt, progress_placeholder)
-            if asyncio.isfuture(full_response):
-                full_response = asyncio.run(full_response)
         st.write(full_response)
 
     current_messages.append({"role": "assistant", "content": full_response})
@@ -166,6 +162,7 @@ if user_input:
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
+
 
 
 
@@ -410,6 +407,7 @@ if user_input:
 #     if current_session["title"] == "새 대화":
 #         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
 #         st.rerun()
+
 
 
 
