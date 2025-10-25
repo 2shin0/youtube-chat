@@ -1,6 +1,7 @@
 # Streamlit 앱: 유튜브 데이터 분석 챗봇
 # Streamlit Cloud에서 Gemini API Key, MCP URL 환경변수 필요
 # 비동기 방식으로 MCP Tool 호출 및 Gemini API 연동
+# Tool 호출 단계 실시간 표시
 
 import streamlit as st
 import time
@@ -53,7 +54,7 @@ for session_id, session_data in st.session_state.chat_sessions.items():
 st.sidebar.caption("⚠️ 이 기록은 브라우저를 닫으면 사라집니다.")
 
 # --- 비동기 챗봇 응답 ---
-async def generate_chat_response_async(messages: List[Dict[str, str]], system_prompt: str, message_placeholder):
+async def generate_chat_response_async(messages: List[Dict[str, str]], system_prompt: str, progress_placeholder):
     full_history = []
     for m in messages:
         role = "model" if m["role"] == "assistant" else m["role"]
@@ -73,25 +74,26 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
         # Tool 호출 단계 표시용 리스트
         tool_messages = []
 
-        async def update_placeholder(msg):
+        async def update_progress(msg):
             tool_messages.append(msg)
-            message_placeholder.markdown("\n".join(tool_messages))
+            progress_placeholder.markdown("\n".join(tool_messages))
 
         while getattr(response, "function_calls", None):
-            await update_placeholder(f"🔎 AI가 MCP Tool 호출 중 ({len(response.function_calls)}개)...")
+            await update_progress(f"🔎 AI가 MCP Tool 호출 중 ({len(response.function_calls)}개)...")
             full_history.append(response.candidates[0].content)
+
             for call in response.function_calls:
                 tool_name = call.name
                 tool_args = dict(call.args)
 
                 try:
-                    await update_placeholder(f"⏳ `{tool_name}` 호출 중...")
+                    await update_progress(f"⏳ `{tool_name}` 호출 중...")
                     tool_output = await async_tool_call(mcp_client, tool_name, tool_args)
                     if not isinstance(tool_output, str):
                         tool_output = json.dumps(tool_output, ensure_ascii=False, indent=2)
-                    await update_placeholder(f"✅ `{tool_name}` 완료")
+                    await update_progress(f"✅ `{tool_name}` 완료")
                 except Exception as e:
-                    await update_placeholder(f"❌ `{tool_name}` 실패: {e}")
+                    await update_progress(f"❌ `{tool_name}` 실패: {e}")
                     tool_output = f"Tool 실행 오류 ({tool_name}): {e}"
 
                 full_history.append(genai.types.Content(
@@ -109,7 +111,6 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
                 )
             )
 
-    message_placeholder.markdown(response.text)
     return response.text
 
 # --- Streamlit 동기 실행 래퍼 ---
@@ -123,8 +124,8 @@ def run_async(coro):
     else:
         return asyncio.run(coro)
 
-def generate_chat_response(messages: List[Dict[str, str]], system_prompt: str, message_placeholder):
-    return run_async(generate_chat_response_async(messages, system_prompt, message_placeholder))
+def generate_chat_response(messages: List[Dict[str, str]], system_prompt: str, progress_placeholder):
+    return run_async(generate_chat_response_async(messages, system_prompt, progress_placeholder))
 
 # --- 메인 UI ---
 st.set_page_config(page_title="유튜브 데이터 분석 챗봇", page_icon="📊")
@@ -151,17 +152,21 @@ if user_input:
     with st.chat_message("user"):
         st.write(user_input)
 
+    # 채팅창 위에 Tool 진행 상태 표시
+    progress_placeholder = st.empty()
     with st.chat_message("assistant"):
-        message_placeholder = st.empty()
         with st.spinner("AI가 응답을 생성 중입니다..."):
-            full_response = generate_chat_response(current_messages, system_prompt, message_placeholder)
+            full_response = generate_chat_response(current_messages, system_prompt, progress_placeholder)
             if asyncio.isfuture(full_response):
                 full_response = asyncio.run(full_response)
-        current_messages.append({"role": "assistant", "content": full_response})
+        st.write(full_response)
+
+    current_messages.append({"role": "assistant", "content": full_response})
 
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
+
 
 
 
@@ -405,5 +410,6 @@ if user_input:
 #     if current_session["title"] == "새 대화":
 #         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
 #         st.rerun()
+
 
 
