@@ -100,7 +100,7 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
         full_history.append(genai.types.Content(role=role, parts=[genai.types.Part.from_text(text=m["content"])]))
 
     async with mcp_client:
-        response = gemini_client.models.generate_content(
+        response = await gemini_client.models.generate_content_async(
             model="gemini-2.5-pro",
             contents=full_history,
             config=genai.types.GenerateContentConfig(
@@ -139,7 +139,7 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
 
             # Tool 결과를 Gemini에 재전달
             full_history.append(genai.types.Content(role="tool", parts=tool_results))
-            response = gemini_client.models.generate_content(
+            response = await gemini_client.models.generate_content_async(
                 model="gemini-2.5-pro",
                 contents=full_history,
                 config=genai.types.GenerateContentConfig(
@@ -225,6 +225,7 @@ if user_input:
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
+
 
 
 
