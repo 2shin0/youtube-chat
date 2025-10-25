@@ -1,11 +1,4 @@
-# 3data/data_analysis.py 기반 코드
-# Streamlit Cloud에서 Gemini API Key, MCP URL 환경변수 설정 필요
-# Streamlit 앱으로 FastMCP Tool Calling 통합
-# 비동기 방식으로(서버에서 데이터 받아오는 동안 UI 멈추지 않고 계속 돌아가도록) Gemini API와 MCP Tool 호출 연동
-
-
-# 필요한 라이브러리 불러오기
-# 3data/data_analysis_streamlit_async.py
+# app.py
 import streamlit as st
 import time
 import asyncio
@@ -51,12 +44,12 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
     full_history = []
     for m in messages:
         role = "model" if m["role"] == "assistant" else m["role"]
-        full_history.append(
-            genai.types.Content(
-                role=role,
-                parts=[genai.types.Part.from_text(str(m.get("content", "")))]
-            )
-        )
+        content_text = str(m.get("content", ""))  # 안전하게 문자열 변환
+        full_history.append(genai.types.Content(
+            role=role,
+            parts=[genai.types.Part.from_text(content_text)]
+        ))
+
     async with mcp_client:
         response = await gemini_client.aio.models.generate_content(
             model="gemini-2.5-pro",
@@ -70,9 +63,7 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
 
         # Tool 호출 루프
         while getattr(response, "function_calls", None):
-            tool_results = []
-            placeholder.write(f"🔎 MCP Tool 호출 중 ({len(response.function_calls)}개) ...")
-
+            placeholder.write(f"🔎 MCP Tool 호출 중 ({len(response.function_calls)}개)...")
             for call in response.function_calls:
                 tool_name = call.name
                 tool_args = dict(call.args)
@@ -84,9 +75,9 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
                     placeholder.write(f"✅ Tool `{tool_name}` 완료")
                 except Exception as e:
                     tool_output = f"Tool 오류 ({tool_name}): {e}"
-                    placeholder.write(f"❌ Tool `{tool_name}` 실패: {tool_output}")
+                    placeholder.write(f"❌ Tool `{tool_name}` 실패")
 
-                # Tool 결과 메시지로 기록
+                # Tool 결과를 full_history와 current_messages에 기록
                 tool_content = genai.types.Content(
                     role="tool",
                     parts=[genai.types.Part.from_function_response(name=tool_name, response=tool_output)]
@@ -94,7 +85,7 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
                 full_history.append(tool_content)
                 current_messages.append({"role": "assistant", "content": tool_output})
 
-            # Tool 결과를 반영해 다시 GPT 응답 생성
+            # Tool 결과 반영해 다시 GPT 응답 생성
             response = await gemini_client.aio.models.generate_content(
                 model="gemini-2.5-pro",
                 contents=full_history,
@@ -143,7 +134,11 @@ for message in current_messages:
     with st.chat_message(message["role"]):
         st.write(message["content"])
 
-system_prompt = """당신은 유튜브 데이터 분석 전문가입니다. ... (이전 prompt 그대로)"""
+# 시스템 프롬프트 (예시)
+system_prompt = """
+당신은 유튜브 데이터 분석 전문가입니다.
+데이터 분석, 댓글 요약, 인사이트 추출 등을 수행합니다.
+"""
 
 user_input = st.chat_input("메시지를 입력하세요...")
 if user_input:
@@ -158,4 +153,3 @@ if user_input:
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
-
