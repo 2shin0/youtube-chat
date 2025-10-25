@@ -125,6 +125,15 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
                 tool_name = call.name
                 tool_args = dict(call.args)
 
+                try:
+                    tool_output = await async_tool_call(mcp_client, tool_name, tool_args)
+                    if not isinstance(tool_output, (str, bytes)):
+                        tool_output = json.dumps(tool_output, ensure_ascii=False, indent=2)
+                    message_placeholder.write(f"✅ Tool 호출 `{tool_name}` 완료")
+                except Exception as e:
+                    tool_output = f"Tool 실행 오류 ({tool_name}): {e}"
+                    message_placeholder.write(f"❌ Tool 호출 실패: {tool_output}")
+
                 tool_results.append(
                     genai.types.Part.from_function_response(
                         name=tool_name,
@@ -228,4 +237,3 @@ if user_input:
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
-
