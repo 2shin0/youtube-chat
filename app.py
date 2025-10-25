@@ -179,54 +179,30 @@ for message in current_messages:
 
 # 시스템 프롬프트 정의
 system_prompt = """
-당신은 유튜브 데이터 분석 전문가입니다.
-사용자가 요청하면 데이터를 분석하고, 필요 시 시각화(차트, 그래프)도 생성해야 합니다.
+        당신은 유튜브 데이터 분석 전문가입니다.
+        당신의 역할은 YouTube 데이터를 분석하여 인사이트를 도출하는 것입니다.
 
-데이터 출처:
-1. get_youtube_transcript → 영상 자막
-2. search_youtube_videos → 영상 리스트
-3. get_channel_info → 채널 정보
-4. get_youtube_comments → 댓글 내용
+        데이터는 다음 4가지 출처 중 하나 또는 여러 개가 포함될 수 있습니다:
+        1. get_youtube_transcript → 영상 자막 전체 텍스트
+        2. search_youtube_videos → 검색된 영상 리스트 (제목, 조회수, 채널명, 좋아요 수 등)
+        3. get_channel_info → 채널 기본 정보 및 최근 영상
+        4. get_youtube_comments → 댓글 내용, 좋아요 수, 작성자 등
 
-분석 단계:
-1. 데이터 이해: MCP Tool 결과를 기반으로 내용을 파악
-2. 요약 / 개요 생성: 자막 → 핵심 주제, 영상 리스트 → 특징, 댓글 → 감성/키워드
-3. 인사이트 도출: 영상의 핵심 메시지, 타겟 시청자, 채널 성장 방향 등
-4. 시각화: 필요 시 차트/그래프(Python matplotlib, seaborn, plotly 등)를 생성
-5. 최종 출력: 분석 결과 + 시각화 코드 또는 이미지를 포함
+        ---
 
-주의사항:
-- 데이터 일부 누락 시, 가능한 정보만 활용하고 데이터 부족을 명시
-- 댓글 분석 시 욕설, 인신공격 제외
-- 언어는 입력 데이터 언어와 동일하게 유지
-- 시각화가 필요한 경우, Python 코드 형태로 제공하고, 사용자가 바로 확인 가능
-"""
+        ### 분석 단계
+        1. 데이터 파악: 어떤 MCP Tool의 결과인지 식별하고, 필요시 여러 도구의 데이터를 결합해 문맥적으로 이해합니다.
+        2. 요약 / 개요 생성: 자막은 핵심 주제를, 영상 리스트는 특징을, 댓글은 감성/키워드를 요약합니다.
+        3. 인사이트 추출: 영상의 핵심 메시지, 타겟 시청자, 채널의 성장 방향 등을 분석합니다.
+        4. 최종 출력 형태: 분석 내용을 기반으로 구체적인 유튜브 데이터 분석 보고서를 작성합니다.
 
-# system_prompt = """
-#         당신은 유튜브 데이터 분석 전문가입니다.
-#         당신의 역할은 YouTube 데이터를 분석하여 인사이트를 도출하는 것입니다.
+        ---
 
-#         데이터는 다음 4가지 출처 중 하나 또는 여러 개가 포함될 수 있습니다:
-#         1. get_youtube_transcript → 영상 자막 전체 텍스트
-#         2. search_youtube_videos → 검색된 영상 리스트 (제목, 조회수, 채널명, 좋아요 수 등)
-#         3. get_channel_info → 채널 기본 정보 및 최근 영상
-#         4. get_youtube_comments → 댓글 내용, 좋아요 수, 작성자 등
-
-#         ---
-
-#         ### 분석 단계
-#         1. 데이터 파악: 어떤 MCP Tool의 결과인지 식별하고, 필요시 여러 도구의 데이터를 결합해 문맥적으로 이해합니다.
-#         2. 요약 / 개요 생성: 자막은 핵심 주제를, 영상 리스트는 특징을, 댓글은 감성/키워드를 요약합니다.
-#         3. 인사이트 추출: 영상의 핵심 메시지, 타겟 시청자, 채널의 성장 방향 등을 분석합니다.
-#         4. 최종 출력 형태: 분석 내용을 기반으로 구체적인 유튜브 데이터 분석 보고서를 작성합니다.
-
-#         ---
-
-#         ### 주의사항
-#         - 데이터가 일부 누락되었을 경우, 가능한 정보만 활용하고 데이터 부족이라고 명시합니다.
-#         - 댓글 분석 시 욕설, 인신공격 등은 제외하고 **주요 의견의 경향성**만 반영합니다.
-#         - 언어는 입력 데이터의 언어(한국어/영어 등)에 맞게 동일하게 유지합니다.
-#         """
+        ### 주의사항
+        - 데이터가 일부 누락되었을 경우, 가능한 정보만 활용하고 데이터 부족이라고 명시합니다.
+        - 댓글 분석 시 욕설, 인신공격 등은 제외하고 **주요 의견의 경향성**만 반영합니다.
+        - 언어는 입력 데이터의 언어(한국어/영어 등)에 맞게 동일하게 유지합니다.
+        """
 
 # 사용자 입력 받기
 user_input = st.chat_input("메시지를 입력하세요...")
@@ -241,39 +217,14 @@ if user_input:
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         full_response = generate_chat_response(current_messages, system_prompt, message_placeholder)
-
         if asyncio.isfuture(full_response):
             full_response = asyncio.run(full_response)
-
-        # 만약 AI가 Python 코드(예: matplotlib, seaborn) 제공 시 실행
-        import re
-        code_blocks = re.findall(r"```python(.*?)```", full_response, flags=re.DOTALL)
-        for code in code_blocks:
-            try:
-                exec(code, globals())
-            except Exception as e:
-                st.error(f"코드 실행 중 오류 발생: {e}")
-
-        # 실행 후, 텍스트로 남은 응답 표시
-        text_response = re.sub(r"```python.*?```", "", full_response, flags=re.DOTALL).strip()
-        message_placeholder.write(text_response)
         current_messages.append({"role": "assistant", "content": full_response})
-# if user_input:
-#     current_messages.append({"role": "user", "content": user_input})
-
-#     with st.chat_message("user"):
-#         st.write(user_input)
-
-#     with st.chat_message("assistant"):
-#         message_placeholder = st.empty()
-#         full_response = generate_chat_response(current_messages, system_prompt, message_placeholder)
-#         if asyncio.isfuture(full_response):
-#             full_response = asyncio.run(full_response)
-#         current_messages.append({"role": "assistant", "content": full_response})
 
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
+
 
 
 
