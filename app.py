@@ -1,6 +1,5 @@
 # 필요한 라이브러리 불러오기
 import streamlit as st
-import google.generativeai as genai
 import time
 from fastmcp import Client
 from fastmcp.client.auth import BearerAuth
@@ -226,6 +225,7 @@ if user_input:
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
+
 
 
 
