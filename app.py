@@ -119,7 +119,12 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
         while getattr(response, "function_calls", None):
             tool_results = []
 
-            message_placeholder.write(f"🔎 AI가 MCP 서버를 통해 데이터를 가져오는 중입니다 ({len(response.function_calls)}개)...")
+            message_placeholder.markdown(
+                f"🔎 AI가 MCP 서버를 통해 데이터를 가져오는 중입니다 "
+                f"({len(response.function_calls)}개)..."
+            )
+            await asyncio.sleep(0.1)  # 🔹 Streamlit에 렌더링 타이밍 제공
+
             full_history.append(response.candidates[0].content)
 
             for call in response.function_calls:
@@ -130,10 +135,12 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
                     tool_output = await async_tool_call(mcp_client, tool_name, tool_args)
                     if not isinstance(tool_output, (str, bytes)):
                         tool_output = json.dumps(tool_output, ensure_ascii=False, indent=2)
-                    message_placeholder.write(f"✅ Tool 호출 `{tool_name}` 완료")
+                    message_placeholder.markdown(f"✅ Tool 호출 `{tool_name}` 완료")
                 except Exception as e:
                     tool_output = f"Tool 실행 오류 ({tool_name}): {e}"
-                    message_placeholder.write(f"❌ Tool 호출 실패: {tool_output}")
+                    message_placeholder.markdown(f"❌ Tool 호출 실패: {tool_output}")
+
+                await asyncio.sleep(0.1)
 
                 tool_results.append(
                     genai.types.Part.from_function_response(
@@ -219,7 +226,7 @@ system_prompt = """
         """
 
 # 사용자 입력 받기
-user_input = st.chat_input("메시지를 입력하세요...")
+user_input = st.chat_input("메시지를 입력하세요.")
 
 # 사용자가 메시지를 입력했을 때
 if user_input:
@@ -230,11 +237,15 @@ if user_input:
 
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
-        full_response = generate_chat_response(current_messages, system_prompt, message_placeholder)
-        if asyncio.isfuture(full_response):
-            full_response = asyncio.run(full_response)
+        
+        with st.spinner("🤖 YouTube MCP를 활용하여 분석 중입니다. 잠시만 기다려주세요!"):
+            full_response = generate_chat_response(current_messages, system_prompt, message_placeholder)
+            if asyncio.isfuture(full_response):
+                full_response = asyncio.run(full_response)
+    
         current_messages.append({"role": "assistant", "content": full_response})
 
     if current_session["title"] == "새 대화":
         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
         st.rerun()
+
