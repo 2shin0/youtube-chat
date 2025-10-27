@@ -73,7 +73,10 @@ async def generate_chat_response_async(messages: List[Dict[str, str]], system_pr
     """Gemini + MCP Tool 통합 비동기 처리"""
     # 🔧 멀티턴 컨텍스트 올바르게 반영 (role 그대로 유지)
     full_history = [
-        genai.types.Content(role=m["role"], parts=[genai.types.Part.from_text(m["content"])])
+        genai.types.Content(
+            role=m["role"],
+            parts=[genai.types.Part(text=m["content"])]
+        )
         for m in messages
     ]
 
@@ -443,4 +446,5 @@ if user_input:
 #     if current_session["title"] == "새 대화":
 #         current_session["title"] = user_input[:30] + "..." if len(user_input) > 30 else user_input
 #         st.rerun()
+
 
