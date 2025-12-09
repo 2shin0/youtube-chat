@@ -86,6 +86,7 @@ gemini_api_key = "AIzaSy..."
 # URL of the deployed FastMCP server (e.g., FastMCP Cloud URL)
 [api]
 mcp_server_url = "https://your-mcp-server-url..."
+```
 
 ## Usage Examples
 
